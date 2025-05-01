@@ -1,28 +1,32 @@
-from sqlalchemy import create_engine, Column, Integer, String, JSON
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from config import DATABASE_URL
+import redis
+from config import Config
 
-Base = declarative_base()
-
-class UserStats(Base):
-    __tablename__ = 'user_stats'
+class Database:
+    def __init__(self):
+        self.redis = redis.from_url(Config.REDIS_URL, decode_responses=True)
     
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, unique=True)
-    games_played = Column(Integer, default=0)
-    games_won = Column(Integer, default=0)
-    preferences = Column(JSON, default={})
+    def get_user_score(self, user_id: int) -> int:
+        """Get user's current score."""
+        return int(self.redis.hget('user_scores', str(user_id)) or 0
+    
+    def set_user_score(self, user_id: int, score: int) -> None:
+        """Update user's score."""
+        self.redis.hset('user_scores', str(user_id), score)
+    
+    def get_leaderboard(self) -> dict:
+        """Get all scores."""
+        return {k: int(v) for k, v in self.redis.hgetall('user_scores').items()}
+    
+    def get_game_state(self, chat_id: int, game_name: str) -> str:
+        """Get current game state."""
+        return self.redis.hget(f'game_states:{game_name}', str(chat_id))
+    
+    def set_game_state(self, chat_id: int, game_name: str, state: str) -> None:
+        """Set game state."""
+        if state is None:
+            self.redis.hdel(f'game_states:{game_name}', str(chat_id))
+        else:
+            self.redis.hset(f'game_states:{game_name}', str(chat_id), state)
 
-engine = create_engine(DATABASE_URL)
-Base.metadata.create_all(engine)
-Session = sessionmaker(bind=engine)
-
-def get_user_stats(user_id):
-    session = Session()
-    stats = session.query(UserStats).filter_by(user_id=user_id).first()
-    if not stats:
-        stats = UserStats(user_id=user_id)
-        session.add(stats)
-        session.commit()
-    return stats
+# Global database instance
+db = Database()
