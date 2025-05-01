@@ -86,24 +86,9 @@ async def show_scores(update: Update, context: CallbackContext) -> None:
         logger.error(f"Error in show_scores: {e}")
         await update.message.reply_text("❌ Could not retrieve scores at this time.")
 
-async def handle_message(update: Update, context: CallbackContext) -> None:
-    """Handle all non-command text messages."""
-    if not update.message or not update.message.text:
-        return
-    
-    try:
-        chat_id = update.effective_chat.id
-        if db.get_game_state(chat_id, 'trivia'):
-            await check_trivia_answer(update, context)
-        elif db.get_game_state(chat_id, 'wordchain'):
-            await check_wordchain_answer(update, context)
-        elif db.get_game_state(chat_id, 'tictactoe'):
-            await handle_tictactoe_move(update, context)
-        else:
-            await update.message.reply_text("Type /games to see available games!")
-    except Exception as e:
-        logger.error(f"Error in handle_message: {e}")
+# Game Implementations
 
+# Trivia Game
 async def start_trivia(update: Update, context: CallbackContext) -> None:
     """Start a trivia game."""
     try:
@@ -145,6 +130,87 @@ async def check_trivia_answer(update: Update, context: CallbackContext) -> None:
         logger.error(f"Error in check_trivia_answer: {e}")
         await update.message.reply_text("❌ Error processing your answer.")
 
+# Word Chain Game
+async def start_wordchain(update: Update, context: CallbackContext) -> None:
+    """Start a word chain game."""
+    try:
+        chat_id = update.effective_chat.id
+        db.set_game_state(chat_id, 'wordchain', 'apple')  # Starting word
+        await update.message.reply_text(
+            "🔤 WORD CHAIN 🔤\n\n"
+            "Rules: Each word must start with the last letter of the previous word.\n\n"
+            "First word: Apple\n"
+            "Your turn! Reply with a word starting with 'e'"
+        )
+    except Exception as e:
+        logger.error(f"Error in start_wordchain: {e}")
+        await update.message.reply_text("❌ Could not start word chain game.")
+
+async def check_wordchain_answer(update: Update, context: CallbackContext) -> None:
+    """Check the word chain answer."""
+    try:
+        chat_id = update.effective_chat.id
+        last_word = db.get_game_state(chat_id, 'wordchain')
+        new_word = update.message.text.strip().lower()
+        
+        if not new_word.isalpha():
+            await update.message.reply_text("❌ Please enter a valid word!")
+            return
+            
+        if new_word[0] != last_word[-1]:
+            await update.message.reply_text(
+                f"❌ Your word should start with '{last_word[-1]}'!"
+            )
+            return
+            
+        db.set_game_state(chat_id, 'wordchain', new_word)
+        await update.message.reply_text(
+            f"✅ Good! Now reply with a word starting with '{new_word[-1]}'"
+        )
+    except Exception as e:
+        logger.error(f"Error in check_wordchain_answer: {e}")
+        await update.message.reply_text("❌ Error processing your word.")
+
+# Quiz Game
+async def start_quiz(update: Update, context: CallbackContext) -> None:
+    """Start a quiz game."""
+    try:
+        chat_id = update.effective_chat.id
+        question = "What is 2+2?"
+        options = ["3", "4", "5", "6"]
+        correct_answer = "4"
+        
+        db.set_game_state(chat_id, 'quiz', correct_answer)
+        await update.message.reply_text(
+            f"❓ QUIZ: {question}\n\n" +
+            "\n".join(f"{i+1}. {opt}" for i, opt in enumerate(options)) +
+            "\n\nReply with the number of your answer!"
+        )
+    except Exception as e:
+        logger.error(f"Error in start_quiz: {e}")
+        await update.message.reply_text("❌ Could not start quiz game.")
+
+async def check_quiz_answer(update: Update, context: CallbackContext) -> None:
+    """Check the answer to a quiz question."""
+    try:
+        chat_id = update.effective_chat.id
+        user_answer = update.message.text.strip()
+        correct_answer = db.get_game_state(chat_id, 'quiz')
+        
+        if user_answer == correct_answer:
+            user_id = update.effective_user.id
+            current_score = db.get_user_score(user_id)
+            db.set_user_score(user_id, current_score + 5)
+            await update.message.reply_text("✅ Correct! +5 points!")
+        else:
+            await update.message.reply_text(f"❌ Wrong! The correct answer was: {correct_answer}")
+        
+        db.set_game_state(chat_id, 'quiz', None)
+    except Exception as e:
+        logger.error(f"Error in check_quiz_answer: {e}")
+        await update.message.reply_text("❌ Error processing your answer.")
+
+# Tic Tac Toe Game
 async def start_tictactoe(update: Update, context: CallbackContext) -> None:
     """Start a Tic Tac Toe game."""
     try:
@@ -214,7 +280,6 @@ async def handle_tictactoe_move(update: Update, context: CallbackContext) -> Non
 
 def check_winner(board):
     """Check if there's a winner in Tic Tac Toe."""
-    # Winning combinations
     lines = [
         [0, 1, 2], [3, 4, 5], [6, 7, 8],  # rows
         [0, 3, 6], [1, 4, 7], [2, 5, 8],  # columns
@@ -234,6 +299,27 @@ def format_tictactoe_board(board):
         "---------\n"
         f"{board[6]} | {board[7]} | {board[8]}"
     )
+
+# Message Handler
+async def handle_message(update: Update, context: CallbackContext) -> None:
+    """Handle all non-command text messages."""
+    if not update.message or not update.message.text:
+        return
+    
+    try:
+        chat_id = update.effective_chat.id
+        if db.get_game_state(chat_id, 'trivia'):
+            await check_trivia_answer(update, context)
+        elif db.get_game_state(chat_id, 'wordchain'):
+            await check_wordchain_answer(update, context)
+        elif db.get_game_state(chat_id, 'quiz'):
+            await check_quiz_answer(update, context)
+        elif db.get_game_state(chat_id, 'tictactoe'):
+            await handle_tictactoe_move(update, context)
+        else:
+            await update.message.reply_text("Type /games to see available games!")
+    except Exception as e:
+        logger.error(f"Error in handle_message: {e}")
 
 def main() -> None:
     """Run the bot."""
