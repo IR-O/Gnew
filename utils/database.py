@@ -7,7 +7,7 @@ class Database:
     
     def get_user_score(self, user_id: int) -> int:
         """Get user's current score."""
-        return int(self.redis.hget('user_scores', str(user_id)) or 0
+        return int(self.redis.hget('user_scores', str(user_id)) or 0)
     
     def set_user_score(self, user_id: int, score: int) -> None:
         """Update user's score."""
