@@ -1,56 +1,103 @@
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackContext
 import random
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, CallbackQueryHandler, CallbackContext
 
 TRIVIA_QUESTIONS = [
     {
-        "question": "Which country is home to the kangaroo?",
-        "options": ["Canada", "Australia", "Brazil", "South Africa"],
-        "correct": 1,
+        "question": "What is the capital of France?",
+        "options": ["London", "Berlin", "Paris", "Madrid"],
+        "correct": 2,
         "category": "Geography"
     },
-    # Add more questions...
+    {
+        "question": "Which planet is known as the Red Planet?",
+        "options": ["Venus", "Mars", "Jupiter", "Saturn"],
+        "correct": 1,
+        "category": "Science"
+    },
+    {
+        "question": "Who painted the Mona Lisa?",
+        "options": ["Vincent van Gogh", "Pablo Picasso", "Leonardo da Vinci", "Michelangelo"],
+        "correct": 2,
+        "category": "Art"
+    },
+    {
+        "question": "What is the largest mammal?",
+        "options": ["Elephant", "Blue Whale", "Giraffe", "Polar Bear"],
+        "correct": 1,
+        "category": "Science"
+    },
+    {
+        "question": "In which year did World War II end?",
+        "options": ["1943", "1945", "1947", "1950"],
+        "correct": 1,
+        "category": "History"
+    }
 ]
 
-trivia_sessions = {}
+class TriviaGame:
+    def new_game(self):
+        question = random.choice(TRIVIA_QUESTIONS)
+        return {
+            'question': question['question'],
+            'options': question['options'],
+            'correct': question['correct'],
+            'category': question['category'],
+            'answered': False,
+            'message_id': None
+        }
 
-def register(app):
-    app.add_handler(CommandHandler('trivia', start_trivia))
-    app.add_handler(CallbackQueryHandler(handle_trivia_answer, pattern='^trivia_'))
+    async def handle_message(self, update: Update, context: CallbackContext, game):
+        query = update.callback_query
+        data = query.data.split('_')[-1] if '_' in query.data else None
 
-def start_trivia(update: Update, context: CallbackContext) -> None:
-    chat_id = update.effective_chat.id
-    question = random.choice(TRIVIA_QUESTIONS)
-    trivia_sessions[chat_id] = question
-    
-    keyboard = []
-    for i, option in enumerate(question['options']):
-        keyboard.append([InlineKeyboardButton(option, callback_data=f'trivia_{i}')])
-    
-    update.message.reply_text(
-        f"Category: {question['category']}\n\n"
-        f"Question: {question['question']}",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+        if data == 'start':
+            game.update(self.new_game())
+            return await self.render_game(game, game['question'])
+        
+        elif data == 'back':
+            return None
+        
+        elif data and data.isdigit():
+            selected = int(data)
+            if game['answered']:
+                await query.answer(text="This question has already been answered!", show_alert=True)
+                return None
+            
+            game['answered'] = True
+            if selected == game['correct']:
+                response = await self.render_game(
+                    game,
+                    f"✅ Correct! {game['options'][game['correct']]} is the right answer.",
+                    answered=True
+                )
+                response['points'] = 5
+                return response
+            else:
+                return await self.render_game(
+                    game,
+                    f"❌ Wrong! The correct answer is {game['options'][game['correct']]}.\n"
+                    f"You selected {game['options'][selected]}.",
+                    answered=True
+                )
+        else:
+            return await self.render_game(game, game['question'])
 
-def handle_trivia_answer(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    chat_id = query.message.chat_id
-    selected = int(query.data.split('_')[1])
-    
-    question = trivia_sessions.get(chat_id)
-    if not question:
-        query.answer()
-        return
-    
-    if selected == question['correct']:
-        result = "✅ Correct! Well done!"
-    else:
-        correct_answer = question['options'][question['correct']]
-        result = f"❌ Wrong! The correct answer was: {correct_answer}"
-    
-    query.edit_message_text(
-        f"{result}\n\n"
-        "Play again? /trivia"
-    )
-    query.answer()
+    async def render_game(self, game, message, answered=False):
+        keyboard = []
+        for i, option in enumerate(game['options']):
+            if answered:
+                prefix = "✅ " if i == game['correct'] else "❌ "
+                keyboard.append([InlineKeyboardButton(prefix + option, callback_data=f"trivia_{i}")])
+            else:
+                keyboard.append([InlineKeyboardButton(option, callback_data=f"trivia_{i}")])
+        
+        if answered:
+            keyboard.append([InlineKeyboardButton("Next Question", callback_data='trivia_start')])
+        keyboard.append([InlineKeyboardButton("Back to Menu", callback_data='back')])
+        
+        return {
+            'text': f"❓ *TRIVIA QUIZ* ({game['category']}) ❓\n\n{message}",
+            'reply_markup': InlineKeyboardMarkup(keyboard),
+            'parse_mode': 'Markdown'
+        }
